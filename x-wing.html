@@ -12,13 +12,13 @@
   }
   canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
   #overlay {
-    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    position: fixed; inset: 0; display: flex;
     background: radial-gradient(ellipse at center, rgba(0,10,30,.55), rgba(0,0,0,.85));
     z-index: 5; overflow-y: auto;
   }
   #overlay.hidden, .hidden { display: none !important; }
   .panel {
-    max-width: 580px; margin: 20px; padding: 26px 30px; text-align: center;
+    max-width: 600px; margin: auto; padding: 26px 30px; text-align: center;
     border: 1px solid rgba(255,220,120,.35); border-radius: 14px;
     background: rgba(5,10,25,.85); box-shadow: 0 0 40px rgba(255,190,60,.15);
   }
@@ -45,6 +45,40 @@
   }
   .panel .assist button.opt.sel { color: #111; background: #7fd0ff; border-color: #7fd0ff; }
   .assist .hint { font-size: 13px; color: #9fb0cc; margin: 8px 0 0; min-height: 1.5em; }
+  /* Science quiz */
+  .quiz { text-align: left; }
+  .quiz .qneed { text-align: center; color: #cfd8ea; }
+  .quiz .qtop { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+  .quiz .topic {
+    font-size: 12px; font-weight: 700; letter-spacing: 2px; padding: 4px 10px; border-radius: 20px;
+    background: rgba(127,208,255,.15); color: #7fd0ff;
+  }
+  .quiz .stars { color: #ffd84a; font-size: 24px; letter-spacing: 4px; }
+  .quiz .qtext { font-size: 20px; color: #fff; line-height: 1.45; }
+  .quiz .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  @media (max-width: 520px) { .quiz .choices { grid-template-columns: 1fr; } }
+  .panel button.choice {
+    margin: 0; padding: 12px 14px; font-size: 16px; font-weight: 600; letter-spacing: 0; text-align: left;
+    color: #fff; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.3); box-shadow: none;
+  }
+  .panel button.choice { display: flex; align-items: center; gap: 12px; }
+  .panel button.choice .letter {
+    flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 14px; font-weight: 800; color: #111; background: #ffd84a;
+  }
+  .panel button.choice:hover { background: rgba(127,208,255,.25); }
+  .panel button.choice:disabled { cursor: default; opacity: .55; background: rgba(255,255,255,.08); }
+  .panel button.choice.right { opacity: 1; background: #1f8a4c; border-color: #46e08a; }
+  .panel button.choice.wrong { opacity: 1; background: #8a1f1f; border-color: #ff6a6a; }
+  .panel button.hintbtn {
+    margin-top: 12px; padding: 6px 14px; font-size: 14px; letter-spacing: 0; box-shadow: none;
+    color: #ffd84a; background: transparent; border: 1px solid rgba(255,216,74,.5);
+  }
+  .panel button.hintbtn:hover { background: rgba(255,216,74,.12); }
+  .quiz .hinttext { background: rgba(255,216,74,.1); border-left: 3px solid #ffd84a; padding: 8px 12px; border-radius: 6px; }
+  .quiz .feedback { margin-top: 14px; padding: 12px 14px; border-radius: 10px; line-height: 1.5; color: #e6eefc; }
+  .quiz .feedback.good { background: rgba(70,224,138,.12); border-left: 3px solid #46e08a; }
+  .quiz .feedback.bad { background: rgba(255,154,106,.12); border-left: 3px solid #ff9a6a; }
   #topbar { position: fixed; top: 12px; right: 12px; display: flex; gap: 8px; z-index: 10; }
   #topbar button {
     width: 42px; height: 42px; font-size: 18px; color: #fff; cursor: pointer;
@@ -105,6 +139,14 @@ const ASSIST = {
   low:  { label: 'LOW',    radius: 1.5, turn: 8,        hint: 'Shots bend slightly toward enemies near your crosshair.' },
   med:  { label: 'MEDIUM', radius: 3.2, turn: 22,       hint: 'Shots home in on the next enemy around you.' },
   full: { label: 'FULL',   radius: 99,  turn: Infinity, hint: 'Every shot seeks the next available enemy. Use the Force!' },
+};
+
+// Science quiz gate: correct answers needed before each level, and to get a new X-wing after a crash.
+const QUIZ_NEED_LEVEL = 2;
+const QUIZ_NEED_RETRY = 1;
+const GRADES = {
+  y: { label: 'YOUNGLING · AGES 7–8' },
+  p: { label: 'PADAWAN · AGES 9–11' },
 };
 
 // ---------- Canvas ----------
@@ -183,15 +225,19 @@ const sfx = (() => {
     small()  { noise(0.4, 0.35, 2500, 150); },
     boom()   { noise(1.4, 0.9, 3000, 40); tone('sine', 90, 25, 1.2, 0.4); },
     pickup() { tone('sine', 600, 1200, 0.15, 0.15); tone('sine', 900, 1800, 0.15, 0.1, 0.08); },
+    right()  { [660, 880, 1320].forEach((f, i) => tone('sine', f, f, 0.18, 0.12, i * 0.08)); },
+    wrong()  { tone('triangle', 300, 200, 0.3, 0.1); },
     win()    { [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, 0.35, 0.15, 0.4 + i * 0.13)); },
     lose()   { [392, 330, 262].forEach((f, i) => tone('triangle', f, f * 0.98, 0.4, 0.15, i * 0.18)); },
   };
 })();
 
 // ---------- Game state ----------
-let state = 'menu';   // menu | playing | paused | pullup | victory | dead | overlay
+let state = 'menu';   // menu | quiz | playing | paused | pullup | victory | dead | overlay
 let pausedFrom = null;
-let level = 1, score = 0;
+let level = 1, score = 0, levelStartScore = 0;
+let grade = localStorage.getItem('xw_grade');
+if (!GRADES[grade]) grade = 'y';
 let hi = +(localStorage.getItem('xw_hi') || 0);
 let assist = localStorage.getItem('xw_assist');
 if (!ASSIST[assist]) assist = 'med';
@@ -303,10 +349,24 @@ function resetPlayer(z) {
 
 function startGame() {
   level = 1; score = 0; player.shield = 100;
-  startLevel(1);
+  briefing();
+}
+
+// Every level is unlocked by answering science questions.
+function briefing() {
+  startQuiz(QUIZ_NEED_LEVEL, 'MISSION BRIEFING',
+    `Level ${level}: get ${QUIZ_NEED_LEVEL} questions right to launch your X-wing!`,
+    () => startLevel(level));
+}
+
+function retryLevel() {
+  score = levelStartScore;
+  player.shield = 100;
+  startLevel(level);
 }
 
 function startLevel(n) {
+  levelStartScore = score;
   buildLevel(n);
   resetPlayer(0);
   finalWarned = false;
@@ -676,7 +736,7 @@ function updatePullup(dt) {
   if (stateTimer <= 0) {
     player.shield -= 25;
     sfx.lose();
-    if (player.shield <= 0) { player.shield = 0; gameOver(); return; }
+    if (player.shield <= 0) { player.shield = 0; crashed(); return; }
     state = 'overlay';
     showOverlay('MISSED!',
       `<p class="big">No proton torpedo went down the thermal exhaust port.</p>
@@ -701,17 +761,22 @@ function updateVictory(dt) {
       `<p class="big">Level ${level} complete — the thermal exhaust port is hit!</p>
        <p>Bonus: <b>+${victory.bonus}</b> (unused ammo: +${victory.ammoBonus})</p>
        <p>Score: <b>${Math.floor(score)}</b></p>`,
-      'NEXT LEVEL', () => { level++; player.shield = Math.min(100, player.shield + 30); startLevel(level); });
+      'NEXT LEVEL', () => { level++; player.shield = Math.min(100, player.shield + 30); briefing(); });
   }
 }
 
-function gameOver() {
+function crashed() {
   saveHi();
   state = 'overlay';
+  sfx.lose();
   showOverlay('X-WING DESTROYED',
-    `<p class="big">Score: <b>${Math.floor(score)}</b></p>
-     <p>Reached level ${level} · High score: ${hi}</p>`,
-    'PLAY AGAIN', showMenu);
+    `<p class="big">Don't give up, pilot!</p>
+     <p>Answer ${QUIZ_NEED_RETRY} science question correctly in the repair bay to get a new X-wing
+     and try level ${level} again.</p>
+     <p>High score: ${hi}</p>`,
+    'TO THE REPAIR BAY',
+    () => startQuiz(QUIZ_NEED_RETRY, 'REPAIR BAY',
+      `Get ${QUIZ_NEED_RETRY} right and the mechanics will rebuild your X-wing!`, retryLevel));
 }
 
 function updateCamera(dt) {
@@ -736,7 +801,7 @@ function update(dt) {
   }
   particles = particles.filter(p => p.life > 0);
 
-  if (state === 'menu') {
+  if (state === 'menu' || state === 'quiz') {
     player.z += speed * dt;
     const nx = Math.sin(time * 0.6) * 1.6, ny = 2.4 + Math.sin(time * 0.9) * 1.2;
     player.vx = (nx - player.x) / Math.max(dt, 1e-3);
@@ -749,7 +814,7 @@ function update(dt) {
     speed *= Math.max(0, 1 - dt * 1.5);
     player.z += speed * dt;
     stateTimer -= dt;
-    if (stateTimer <= 0) gameOver();
+    if (stateTimer <= 0) crashed();
   }
   if (state !== 'overlay') updateCamera(dt);
 }
@@ -1239,7 +1304,7 @@ function render() {
     ctx.fillStyle = `rgba(255,245,220,${clamp(flash, 0, 1) * 0.85})`;
     ctx.fillRect(0, 0, W, H);
   }
-  if (state !== 'menu') drawHUD();
+  if (state !== 'menu' && state !== 'quiz') drawHUD();
 }
 
 // ---------- Overlay / UI ----------
@@ -1255,6 +1320,7 @@ function showOverlay(title, html, btn, action) {
   ovTitle.innerHTML = title;
   ovBody.innerHTML = html;
   ovBtn.textContent = btn;
+  ovBtn.classList.remove('hidden');
   ovAction = action;
   overlay.classList.remove('hidden');
   input.pointerFire = input.btnLaser = input.torp = false;
@@ -1270,13 +1336,29 @@ function assistPicker() {
 function setAssist(k) {
   assist = k;
   localStorage.setItem('xw_assist', k);
-  for (const b of ovBody.querySelectorAll('.opt')) b.classList.toggle('sel', b.dataset.assist === k);
+  for (const b of ovBody.querySelectorAll('[data-assist]')) b.classList.toggle('sel', b.dataset.assist === k);
   const hint = ovBody.querySelector('.assist .hint');
   if (hint) hint.textContent = ASSIST[k].hint;
 }
+function gradePicker() {
+  return `<div class="assist"><div class="label">SCIENCE QUESTIONS FOR</div><div class="opts">` +
+    Object.keys(GRADES).map(k => `<button class="opt${k === grade ? ' sel' : ''}" data-grade="${k}">${GRADES[k].label}</button>`).join('') +
+    `</div></div>`;
+}
+function setGrade(k) {
+  grade = k;
+  localStorage.setItem('xw_grade', k);
+  for (const b of ovBody.querySelectorAll('[data-grade]')) b.classList.toggle('sel', b.dataset.grade === k);
+}
+
 ovBody.addEventListener('click', e => {
-  const k = e.target.dataset && e.target.dataset.assist;
-  if (k) { sfx.init(); setAssist(k); }
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  sfx.init();
+  if (b.dataset.assist) setAssist(b.dataset.assist);
+  else if (b.dataset.grade) setGrade(b.dataset.grade);
+  else if (b.dataset.choice) answerQuiz(+b.dataset.choice);
+  else if (b.dataset.hint) showHint();
 });
 
 function showMenu() {
@@ -1284,10 +1366,13 @@ function showMenu() {
   showOverlay(TITLE_HTML,
     `<p class="big">Red Five, you're cleared for your attack run! Skim the Death Star's surface, dodge the bulkheads,
      blast the turbolaser towers as they pop up — and put a proton torpedo into the thermal exhaust port.</p>
+     <p>🎓 Every mission starts with a briefing: answer ${QUIZ_NEED_LEVEL} real science or math questions to launch.
+     If your X-wing is destroyed, answer ${QUIZ_NEED_RETRY} more to get a new one.</p>
      <p class="keys">Laser cannons (3 hits destroy a tower): Click / Space<br>
      Proton torpedoes (1 hit destroys a tower): Right-click / X / E<br>
      Shots are limited — collect orange orbs for ammo, blue for shields.<br>
      Steer: Mouse / Arrow keys / WASD / Touch &nbsp;·&nbsp; Pause: P &nbsp;·&nbsp; Fullscreen: F &nbsp;·&nbsp; Sound: M</p>
+     ${gradePicker()}
      ${assistPicker()}
      ${hi ? `<p>High score: <b>${hi}</b></p>` : ''}`,
     'START', startGame);
@@ -1297,7 +1382,7 @@ function togglePause() {
   if (state === 'playing') {
     pausedFrom = state;
     state = 'paused';
-    showOverlay('PAUSED', '<p>Stay on target, pilot.</p>' + assistPicker(), 'RESUME', togglePause);
+    showOverlay('PAUSED', '<p>Stay on target, pilot.</p>' + gradePicker() + assistPicker(), 'RESUME', togglePause);
   } else if (state === 'paused') {
     state = pausedFrom || 'playing';
     hideOverlay();
@@ -1326,12 +1411,290 @@ document.getElementById('btnPause').addEventListener('click', e => { e.currentTa
 document.getElementById('btnMute').addEventListener('click', e => { e.currentTarget.blur(); sfx.init(); toggleMute(); });
 document.getElementById('btnFs').addEventListener('click', e => { e.currentTarget.blur(); toggleFullscreen(); });
 
+// ---------- Science quiz ----------
+// g: 'y' = ages 7–8, 'p' = ages 9–11, 'b' = both. a[0] is always the correct answer (choices get shuffled).
+const QUESTIONS = [
+  { g: 'b', t: 'PHYSICS', q: 'In Star Wars you hear a loud BOOM when ships explode in space. What would you REALLY hear in space?',
+    a: ['Nothing at all', 'A loud boom', 'A quiet pop', 'An echo'],
+    hint: 'Sound is a vibration. It needs something to travel through, like air or water.',
+    learn: 'Space is almost completely empty — there is no air to carry sound waves, so space is silent. Astronauts talk using radios, because radio waves (a kind of light) CAN travel through empty space!' },
+  { g: 'b', t: 'SPACE', q: "Luke Skywalker's home planet Tatooine has two suns. Have scientists found REAL planets that orbit two stars?",
+    a: ['Yes, they have found some', 'No, it is impossible', 'Only in movies', 'Only around the Moon'],
+    hint: 'Lots of stars in our galaxy come in pairs.',
+    learn: "Many stars have a partner star. In 2011 NASA's Kepler space telescope found a planet called Kepler-16b that orbits two stars — scientists nicknamed it \"Tatooine\"!" },
+  { g: 'b', t: 'SPACE', q: 'What is the closest star to Earth?',
+    a: ['The Sun', 'The North Star', 'Sirius', 'Proxima Centauri'],
+    hint: 'You can see this star almost every day.',
+    learn: 'The Sun is a star — a giant ball of hot, glowing gas. The next closest star, Proxima Centauri, is so far away that its light takes more than 4 years to reach us.' },
+  { g: 'b', t: 'PHYSICS', q: 'On the ice planet Hoth everything is frozen. At what temperature does water freeze into ice?',
+    a: ['0 °C (32 °F)', '100 °C (212 °F)', '50 °C (122 °F)', '20 °C (68 °F)'],
+    hint: 'Water BOILS at 100 °C. Freezing is the opposite end of the scale.',
+    learn: 'Water freezes at 0 °C (32 °F) and boils at 100 °C (212 °F). The Celsius scale was actually designed around water: 0 for freezing, 100 for boiling!' },
+  { g: 'b', t: 'PHYSICS', q: 'If an astronaut dropped a wrench on the Moon, what would happen?',
+    a: ['It falls down, but slower than on Earth', 'It floats away into space', 'It falls faster than on Earth', 'It stays still in the air'],
+    hint: 'The Moon has gravity too — just less than Earth.',
+    learn: "The Moon's gravity is about 1/6 as strong as Earth's. Things still fall down, just more slowly — and astronauts could jump much higher than on Earth!" },
+  { g: 'b', t: 'PHYSICS', q: 'How does a rocket push itself forward in space, where there is no air to push against?',
+    a: ['It shoots hot gas backward, which pushes the rocket forward', 'It pushes against the stars', 'Giant magnets pull it', 'It can’t move in space'],
+    hint: 'Think of blowing up a balloon and letting it go.',
+    learn: "This is Newton's Third Law: every action has an equal and opposite reaction. Gas shoots out the back, so the rocket zooms forward — just like a balloon whizzing around the room!" },
+  { g: 'b', t: 'LIFE SCIENCE', q: "Endor's forest moon is covered in giant trees. What do plants need to make their own food?",
+    a: ['Sunlight, water and carbon dioxide', 'Only soil', 'Darkness and sugar', 'Moonlight and rocks'],
+    hint: 'Plants are green because they catch something from the Sun.',
+    learn: 'Plants use photosynthesis: they use sunlight to turn water and carbon dioxide (a gas in the air) into sugar for food. They give off oxygen — the gas we breathe!' },
+  { g: 'b', t: 'SPACE', q: 'Star Wars happens "in a galaxy far, far away." What is the name of OUR galaxy?',
+    a: ['The Milky Way', 'Andromeda', 'The Death Star', 'The Sombrero'],
+    hint: 'It is named after the milky band of light you can see across a dark night sky.',
+    learn: 'We live in the Milky Way, a spiral galaxy with hundreds of billions of stars. The nearest big galaxy, Andromeda, is so far away its light takes about 2.5 million years to reach us!' },
+  { g: 'b', t: 'SPACE', q: 'Which is the BIGGEST planet in our solar system?',
+    a: ['Jupiter', 'Earth', 'Mars', 'Mercury'],
+    hint: 'It has a giant storm called the Great Red Spot.',
+    learn: 'Jupiter is so big that about 1,300 Earths could fit inside it! It is a gas giant — mostly gas, with no solid ground to land an X-wing on.' },
+  { g: 'b', t: 'PHYSICS', q: 'Droids like R2-D2 run on electricity. Which material lets electricity flow through it easily?',
+    a: ['Copper metal', 'Rubber', 'Wood', 'Plastic'],
+    hint: 'Electric wires are made of this inside their plastic coating.',
+    learn: 'Materials that let electricity flow are called conductors — most metals, like copper. Materials that block it, like rubber and plastic, are insulators. They keep us safe from shocks!' },
+
+  { g: 'y', t: 'SPACE', q: 'Which planet is called the "Red Planet"?',
+    a: ['Mars', 'Venus', 'Jupiter', 'Neptune'],
+    hint: 'NASA has sent rovers like Curiosity and Perseverance to drive on it.',
+    learn: 'Mars looks red because its dust and rocks have lots of iron oxide in them — the same thing as rust!' },
+  { g: 'y', t: 'SPACE', q: 'Which planet is famous for its beautiful rings?',
+    a: ['Saturn', 'Mars', 'Mercury', 'Earth'],
+    hint: 'It is the sixth planet from the Sun.',
+    learn: "Saturn's rings are made of billions of pieces of ice and rock — some as tiny as grains of sand, some as big as houses!" },
+  { g: 'y', t: 'PHYSICS', q: 'Light from a lightsaber or a flashlight travels in…',
+    a: ['Straight lines', 'Circles', 'Zig-zags', 'Spirals'],
+    hint: "That's why you can't see around corners.",
+    learn: 'Light travels in straight lines until it hits something. It can bounce off a mirror (that is called reflection) or bend when it goes into water or glass (refraction).' },
+  { g: 'y', t: 'SPACE', q: 'How long does it take Earth to spin around once?',
+    a: ['About 24 hours — one day', 'One hour', 'One week', 'One year'],
+    hint: 'One spin gives us one daytime and one nighttime.',
+    learn: 'One spin of Earth = one day (about 24 hours). One trip all the way around the Sun = one year (about 365 days).' },
+  { g: 'y', t: 'LIFE SCIENCE', q: 'Which gas do astronauts and Rebel pilots need to breathe?',
+    a: ['Oxygen', 'Carbon dioxide', 'Helium', 'Steam'],
+    hint: 'Trees and plants give off this gas.',
+    learn: 'Our bodies use oxygen to turn food into energy. Space has no air, so spacesuits and spaceships carry their own oxygen supply.' },
+  { g: 'y', t: 'SPACE', q: 'Why does the Moon shine at night?',
+    a: ['It reflects light from the Sun', 'It is on fire', 'It has giant lamps', 'It is made of glowing crystals'],
+    hint: 'The Moon does not make any light of its own.',
+    learn: "The Moon is a big rock that reflects sunlight. Its phases (full moon, half moon, crescent) are just how much of its sunny side we can see from Earth." },
+  { g: 'y', t: 'SPACE', q: 'Which planet is closest to the Sun?',
+    a: ['Mercury', 'Venus', 'Earth', 'Neptune'],
+    hint: 'It is also the smallest planet.',
+    learn: 'Mercury is closest and races around the Sun in just 88 days. The planet order is Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune — "My Very Excellent Mother Just Served Us Noodles!"' },
+  { g: 'y', t: 'PHYSICS', q: 'Which of these would a magnet pick up?',
+    a: ['An iron nail', 'A plastic spoon', 'A wooden block', 'A glass marble'],
+    hint: 'Magnets attract some kinds of metal.',
+    learn: 'Magnets attract iron, nickel and cobalt. Earth itself is like a giant magnet — that is why a compass needle points north!' },
+  { g: 'y', t: 'CHEMISTRY', q: 'Han Solo got frozen in carbonite! When liquid water freezes, it becomes a…',
+    a: ['Solid', 'Gas', 'Liquid', 'Rainbow'],
+    hint: 'Ice is hard and keeps its shape.',
+    learn: 'Matter comes in states: solid, liquid and gas. Cooling water turns it into solid ice; heating it turns it into a gas called water vapour (steam).' },
+  { g: 'y', t: 'LIFE SCIENCE', q: "Yoda's swamp planet Dagobah would be perfect for frogs. What kind of animal is a frog?",
+    a: ['An amphibian', 'A mammal', 'A bird', 'An insect'],
+    hint: 'Frogs start life as tadpoles swimming in water.',
+    learn: 'Amphibians start life in water breathing with gills, then grow lungs so they can live on land too. "Amphibian" means "two lives"!' },
+  { g: 'y', t: 'LIFE SCIENCE', q: 'Tatooine is a hot desert. Which real desert animal can go a long time without drinking water?',
+    a: ['A camel', 'A dolphin', 'A penguin', 'A goldfish'],
+    hint: 'It has one or two humps on its back.',
+    learn: "Camels can go more than a week without drinking. Their humps store fat (not water!), which gives them energy when food is hard to find." },
+  { g: 'y', t: 'SPACE', q: 'The Moon travels around the Earth. That makes the Moon Earth\'s…',
+    a: ['Natural satellite', 'Star', 'Sun', 'Comet'],
+    hint: 'Anything that orbits a planet has this name.',
+    learn: 'A satellite is something that orbits a planet. The Moon is Earth’s natural satellite. People have also launched thousands of artificial satellites for things like GPS and weather forecasts.' },
+  { g: 'y', t: 'SPACE', q: 'What tool do astronomers use to look at faraway planets and galaxies?',
+    a: ['A telescope', 'A microscope', 'A thermometer', 'A stethoscope'],
+    hint: 'Its name means "far-seeing."',
+    learn: 'Telescopes collect lots of light so we can see faint, faraway objects. The James Webb Space Telescope floats in space, far beyond the Moon, to see the very first galaxies!' },
+  { g: 'y', t: 'PHYSICS', q: 'When you rub your hands together fast, they get warm. What causes that?',
+    a: ['Friction', 'Magnetism', 'Moonlight', 'Sound'],
+    hint: 'It is the force that makes things slow down when they rub.',
+    learn: 'Friction is a force between surfaces rubbing together, and it turns motion into heat. Spaceships coming back to Earth slam into the air so fast that they get super hot — they need heat shields!' },
+
+  { g: 'p', t: 'SPACE', q: 'Sunlight takes about how long to travel from the Sun to Earth?',
+    a: ['About 8 minutes', 'About 1 second', 'About 1 day', 'About 1 year'],
+    hint: 'Light is the fastest thing there is, but the Sun is about 150 million km away.',
+    learn: 'Sunlight takes about 8 minutes and 20 seconds to reach us. So the Sun you see is how it looked 8 minutes ago! (Never look straight at the Sun — it can hurt your eyes.)' },
+  { g: 'p', t: 'SPACE', q: "Han Solo dodged through a crowded asteroid field. In our solar system's real asteroid belt, asteroids are usually…",
+    a: ['Very far apart', 'Bumping into each other', 'Close enough to touch', 'Stuck together in one big rock'],
+    hint: 'Space is VERY big.',
+    learn: 'Real asteroid belts are mostly empty space — asteroids are usually hundreds of thousands of kilometres apart. NASA spacecraft have flown straight through ours without having to dodge anything!' },
+  { g: 'p', t: 'SPACE', q: 'Stars come in different colours. Which colour stars are the HOTTEST?',
+    a: ['Blue', 'Red', 'Orange', 'Yellow'],
+    hint: 'Think of the hottest part of a gas stove flame.',
+    learn: 'Blue stars are the hottest (more than 10,000 °C on the surface) and red stars are the coolest. Our yellow-white Sun is in the middle.' },
+  { g: 'p', t: 'SPACE', q: 'Which planet is the HOTTEST in our solar system?',
+    a: ['Venus', 'Mercury', 'Mars', 'Jupiter'],
+    hint: "It isn't the closest planet to the Sun! Think about a very thick blanket.",
+    learn: "Venus is about 465 °C — hotter than Mercury! Its thick carbon dioxide atmosphere traps heat. That's called the greenhouse effect." },
+  { g: 'p', t: 'SPACE', q: 'What is a black hole?',
+    a: ['A place where gravity is so strong not even light can escape', 'A hole dug into a planet', 'A planet painted black', 'An empty spot with no gravity'],
+    hint: 'It is all about extremely strong gravity.',
+    learn: 'Black holes can form when giant stars collapse. In 2019 scientists took the first ever picture of a black hole’s shadow, in a galaxy called M87.' },
+  { g: 'p', t: 'CHEMISTRY', q: 'Stars like our Sun are mostly made of super-hot glowing…',
+    a: ['Plasma', 'Ice', 'Rock', 'Liquid water'],
+    hint: 'It is called the fourth state of matter.',
+    learn: 'Plasma is gas that is so hot its atoms break apart into electrically charged pieces. Lightning and neon signs are plasma too!' },
+  { g: 'p', t: 'PHYSICS', q: 'If you flew to Mars, what would happen to your MASS (how much stuff you are made of)?',
+    a: ['It stays the same', 'It gets bigger', 'It gets smaller', 'It becomes zero'],
+    hint: 'Weight depends on gravity, but you are still made of the same amount of stuff.',
+    learn: 'Mass stays the same everywhere. WEIGHT is how hard gravity pulls on your mass. On Mars you would weigh only about 38% of what you weigh on Earth, but your mass would not change.' },
+  { g: 'p', t: 'SPACE', q: 'What happens during a SOLAR eclipse?',
+    a: ['The Moon passes between the Sun and Earth', 'Earth passes between the Sun and Moon', 'The Sun switches off', 'Mars blocks the Moon'],
+    hint: 'Something blocks the Sun from our view.',
+    learn: "In a solar eclipse, the Moon's shadow falls on Earth. In a lunar eclipse, Earth's shadow falls on the Moon. Only look at a solar eclipse through special eclipse glasses!" },
+  { g: 'p', t: 'EARTH SCIENCE', q: 'The ocean planet Kamino is covered in water. About how much of EARTH is covered by water?',
+    a: ['About 70%', 'About 10%', 'About 30%', 'All of it'],
+    hint: 'From space, Earth looks mostly blue.',
+    learn: 'About 71% of Earth’s surface is water, but almost all of it is salty ocean. Only about 3% of Earth’s water is fresh water.' },
+  { g: 'p', t: 'SPACE', q: 'The International Space Station circles Earth about once every…',
+    a: ['90 minutes', '1 day', '1 month', '1 year'],
+    hint: 'It is moving at about 28,000 km per hour!',
+    learn: 'The ISS goes around Earth about every 90 minutes, so astronauts on board see about 16 sunrises and 16 sunsets every day!' },
+  { g: 'p', t: 'SPACE', q: "A comet's glowing tail always points…",
+    a: ['Away from the Sun', 'Toward the Sun', 'Toward Earth', 'Straight down'],
+    hint: 'The Sun’s heat and the solar wind push on it.',
+    learn: 'Comets are "dirty snowballs" of ice and dust. Sunlight and the solar wind push gas and dust away from the Sun, so the tail always points away from it — even when the comet is heading away!' },
+];
+
+const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+// Math generators: return { q, ans, hint, learn }
+const MATH = {
+  y: [
+    () => { const n = ri(2, 5); return { q: `An X-wing has 4 laser cannons. How many laser cannons do ${n} X-wings have altogether?`, ans: 4 * n,
+      hint: `Count by 4s, ${n} times: 4, 8, 12…`, learn: `${n} × 4 = ${4 * n}. Multiplying is a quick way to add equal groups: ${Array(n).fill(4).join(' + ')} = ${4 * n}.` }; },
+    () => { const a = ri(25, 60), b = ri(5, 19); return { q: `You have ${a} laser shots and fire ${b} of them at a turbolaser tower. How many shots are left?`, ans: a - b,
+      hint: `Take ${b} away from ${a}. Try taking away 10 first, then the rest.`, learn: `${a} − ${b} = ${a - b}. Subtraction tells you how many are left.` }; },
+    () => { const a = ri(6, 24), b = ri(6, 24); return { q: `Red Squadron has ${a} pilots and Gold Squadron has ${b} pilots. How many pilots are there altogether?`, ans: a + b,
+      hint: 'Add the tens first, then add the ones.', learn: `${a} + ${b} = ${a + b}.` }; },
+    () => { const n = ri(3, 9); return { q: `A TIE fighter has 2 wings. How many wings do ${n} TIE fighters have?`, ans: 2 * n,
+      hint: 'Count by 2s — or just double the number!', learn: `${n} × 2 = ${2 * n}. Multiplying by 2 is doubling: ${n} + ${n} = ${2 * n}.` }; },
+    () => { const n = ri(2, 7); return { q: `Your deflector shields are at 100. Each blast takes away 10. What are your shields after ${n} blasts?`, ans: 100 - 10 * n,
+      hint: 'Count backwards by 10s from 100.', learn: `${n} blasts × 10 = ${10 * n}, and 100 − ${10 * n} = ${100 - 10 * n}.` }; },
+    () => { const n = ri(2, 5); return { q: `A turbolaser tower takes 3 laser hits to destroy. How many hits do you need to destroy ${n} towers?`, ans: 3 * n,
+      hint: 'Count by 3s.', learn: `${n} × 3 = ${3 * n}. That's ${Array(n).fill(3).join(' + ')}.` }; },
+  ],
+  p: [
+    () => { const s = ri(3, 9) * 10, t = ri(3, 9); return { q: `Your X-wing flies ${s} km every minute. How far does it fly in ${t} minutes?`, ans: s * t,
+      hint: `Work out ${s / 10} × ${t}, then put a zero on the end.`, learn: `Distance = speed × time. ${s} × ${t} = ${s * t} km.` }; },
+    () => { const k = ri(3, 8), each = ri(3, 9); return { q: `${k * each} proton torpedoes are shared equally between ${k} X-wings. How many torpedoes does each X-wing get?`, ans: each,
+      hint: `Division is fair sharing. What number times ${k} makes ${k * each}?`, learn: `${k * each} ÷ ${k} = ${each}, because ${k} × ${each} = ${k * each}. Division and multiplication undo each other!` }; },
+    () => { const v = ri(2, 9) * 10, t = ri(3, 9); return { q: `The thermal exhaust port is ${v * t} m away. You fly ${v} m every second. How many seconds until you reach it?`, ans: t,
+      hint: 'Time = distance ÷ speed.', learn: `${v * t} ÷ ${v} = ${t} seconds. Scientists use distance, speed and time to plan real space missions.` }; },
+    () => { const t = ri(2, 6); return { q: `Sound travels about 340 metres every second through air. You see lightning and hear the thunder ${t} seconds later. About how far away was the lightning?`, ans: 340 * t,
+      hint: `Multiply 340 by ${t}.`, learn: `340 × ${t} = ${340 * t} m. Light reaches your eyes almost instantly, but sound is much slower — so you see lightning before you hear thunder. In space, with no air, there would be no thunder at all!` }; },
+    () => { const q = ri(3, 9), total = 4 * q; return { q: `You start with ${total} laser shots and use 1/4 of them in the first minute. How many shots did you use?`, ans: q,
+      hint: 'Finding a quarter means splitting into 4 equal parts.', learn: `${total} ÷ 4 = ${q}. One quarter (1/4) means 1 out of 4 equal parts.` }; },
+    () => { const n = ri(6, 12); return { q: `A turbolaser tower takes 3 laser hits to destroy. How many hits do you need to destroy ${n} towers?`, ans: 3 * n,
+      hint: `Work out ${n} × 3.`, learn: `${n} × 3 = ${3 * n}. (Or use proton torpedoes — 1 hit each!)` }; },
+    () => { const m = ri(4, 12); return { q: `On the Moon, gravity is about 1/6 as strong as on Earth. A droid reads ${6 * m} on a scale on Earth. About what would the scale read on the Moon?`, ans: m,
+      hint: `Divide ${6 * m} by 6.`, learn: `${6 * m} ÷ 6 = ${m}. The droid is made of the same amount of stuff, but the Moon pulls on it about 6 times less, so the scale reads less.` }; },
+  ],
+};
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+function numberChoices(ans) {
+  const cands = shuffle([ans + 1, ans - 1, ans + 2, ans - 2, ans + 10, ans - 10, ans * 2, Math.round(ans / 2)]);
+  const wrong = [];
+  for (const c of cands) if (c > 0 && c !== ans && !wrong.includes(c) && wrong.length < 3) wrong.push(c);
+  const choices = shuffle([ans, ...wrong]);
+  return { choices: choices.map(String), correct: choices.indexOf(ans) };
+}
+
+const decks = {};
+let lastMath = null;
+function drawQuestion() {
+  if (Math.random() < 0.4) {
+    let gen;
+    do { gen = pick(MATH[grade]); } while (gen === lastMath && MATH[grade].length > 1);
+    lastMath = gen;
+    const m = gen();
+    return { topic: 'MATH', q: m.q, ...numberChoices(m.ans), hint: m.hint, learn: m.learn };
+  }
+  if (!decks[grade] || !decks[grade].length) decks[grade] = shuffle(QUESTIONS.filter(q => q.g === grade || q.g === 'b'));
+  const c = decks[grade].pop();
+  const order = shuffle(c.a.map((text, i) => ({ text, i })));
+  return { topic: c.t, q: c.q, choices: order.map(o => o.text), correct: order.findIndex(o => o.i === 0), hint: c.hint, learn: c.learn };
+}
+
+let quiz = null;
+
+function startQuiz(need, title, intro, onPass) {
+  menuScene();
+  state = 'quiz';
+  quiz = { need, got: 0, title, intro, onPass, q: null, answered: false };
+  nextQuestion();
+}
+
+function quizStars() {
+  return Array.from({ length: quiz.need }, (_, i) => i < quiz.got ? '★' : '☆').join('');
+}
+
+function nextQuestion() {
+  const q = quiz.q = drawQuestion();
+  quiz.answered = false;
+  showOverlay(quiz.title,
+    `<div class="quiz">
+       <p class="qneed">${quiz.intro}</p>
+       <div class="qtop"><span class="topic">${q.topic}</span><span class="stars">${quizStars()}</span></div>
+       <p class="qtext">${q.q}</p>
+       <div class="choices">${q.choices.map((c, i) => `<button class="choice" data-choice="${i}"><span class="letter">${'ABCD'[i]}</span><span>${c}</span></button>`).join('')}</div>
+       <button class="hintbtn" data-hint="1">💡 Need a hint?</button>
+       <p class="hinttext hidden">${q.hint}</p>
+       <div class="feedback hidden"></div>
+     </div>`,
+    '', null);
+  ovBtn.classList.add('hidden');
+}
+
+function showHint() {
+  if (!quiz || quiz.answered) return;
+  ovBody.querySelector('.hinttext').classList.remove('hidden');
+  ovBody.querySelector('.hintbtn').classList.add('hidden');
+}
+
+function answerQuiz(i) {
+  if (!quiz || quiz.answered || state !== 'quiz') return;
+  const q = quiz.q;
+  if (i < 0 || i >= q.choices.length) return;
+  quiz.answered = true;
+  const right = i === q.correct;
+  ovBody.querySelectorAll('.choice').forEach((b, j) => {
+    b.disabled = true;
+    if (j === q.correct) b.classList.add('right');
+    else if (j === i) b.classList.add('wrong');
+  });
+  ovBody.querySelector('.hintbtn').classList.add('hidden');
+  ovBody.querySelector('.hinttext').classList.add('hidden');
+  if (right) { quiz.got++; sfx.right(); } else sfx.wrong();
+  ovBody.querySelector('.stars').textContent = quizStars();
+  const fb = ovBody.querySelector('.feedback');
+  fb.classList.remove('hidden');
+  fb.classList.add(right ? 'good' : 'bad');
+  fb.innerHTML = (right
+    ? `<b>✅ Correct — great job, pilot!</b><br>`
+    : `<b>Not quite — good try!</b> The answer is <b>${q.choices[q.correct]}</b>.<br>`) +
+    `🎓 ${q.learn}`;
+  const done = quiz.got >= quiz.need;
+  ovBtn.textContent = done ? 'LAUNCH X-WING! 🚀' : 'NEXT QUESTION';
+  ovAction = done ? quiz.onPass : nextQuestion;
+  ovBtn.classList.remove('hidden');
+}
+
 // ---------- Input ----------
 const KEYMAP = {
   ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
   ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'fire',
 };
 window.addEventListener('keydown', e => {
+  // Quiz answers use letters A–D (checked first, since A and D also steer)
+  if (state === 'quiz' && /^Key[A-D]$/.test(e.code)) { answerQuiz(e.code.charCodeAt(3) - 65); return; }
   const k = KEYMAP[e.code];
   if (k) {
     e.preventDefault();
@@ -1344,7 +1707,8 @@ window.addEventListener('keydown', e => {
   else if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
   else if (e.code === 'KeyF') toggleFullscreen();
   else if (e.code === 'KeyM') toggleMute();
-  else if (e.code === 'Enter' && !overlay.classList.contains('hidden')) ovBtn.click();
+  else if (state === 'quiz' && e.code === 'KeyH') showHint();
+  else if (e.code === 'Enter' && !overlay.classList.contains('hidden') && !ovBtn.classList.contains('hidden')) ovBtn.click();
 });
 window.addEventListener('keyup', e => {
   const k = KEYMAP[e.code];
